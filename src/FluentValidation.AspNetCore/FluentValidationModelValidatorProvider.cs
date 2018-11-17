@@ -20,6 +20,7 @@ namespace FluentValidation.AspNetCore {
 	using System;
 	using System.Collections.Generic;
 	using System.Linq;
+	using DependencyInjection;
 	using Microsoft.AspNetCore.Mvc;
 	using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
 	using Microsoft.AspNetCore.Mvc.ModelBinding.Validation;
@@ -77,6 +78,7 @@ namespace FluentValidation.AspNetCore {
 				var interceptor = customizations.GetInterceptor() ?? validator as IValidatorInterceptor;
 				var context = new ValidationContext(mvContext.Model, new PropertyChain(), selector);
 				context.RootContextData["InvokedByMvc"] = true;
+				context.SetServiceProvider(mvContext.ActionContext.HttpContext.RequestServices);
 
 				if (interceptor != null) {
 					// Allow the user to provide a customized context

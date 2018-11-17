@@ -3,6 +3,7 @@
 	using System.Collections;
 	using System.Collections.Generic;
 	using System.ComponentModel.DataAnnotations;
+	using DependencyInjection;
 	using FluentValidation;
 	using FluentValidation.Attributes;
 	using FluentValidation.AspNetCore;
@@ -489,5 +490,17 @@
 	public class ChildModel7 {
 		[Required]
 		public string Name { get; set; }
+	}
+
+	public class InjectsExplicitChildValidator : AbstractValidator<ParentModel> {
+		public InjectsExplicitChildValidator() {
+			RuleFor(x => x.Child).InjectValidator();
+		}
+	}
+
+	public class InjectedChildValidator : AbstractValidator<ChildModel> {
+		public InjectedChildValidator() {
+			RuleFor(x => x.Name).NotNull().WithMessage("NotNullInjected");
+		}
 	}
 }
