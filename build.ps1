@@ -1,5 +1,5 @@
 param(
-  [string]$version = '8.1.0-dev',
+  [string]$version = '8.2.0-dev',
   [string]$configuration = 'Release',
   [string]$path = $PSScriptRoot,
   [string]$keyfile = ""
@@ -22,6 +22,10 @@ if (test-path "$env:USERPROFILE\Dropbox\FluentValidation-Release.snk") {
   # Use Jeremy's local copy of the key
   $keyfile = "$env:USERPROFILE\Dropbox\FluentValidation-Release.snk"
 }
+elseif (Test-Path "~/Dropbox/FluentValidation-Release.snk") {
+  # Local builds on linux
+  $keyfile = Resolve-Path "~/Dropbox/FluentValidation-Release.snk"
+}
 elseif (Test-Path "$path\src\FluentValidation-Release.snk") {
   # For CI builds appveyor will decrypt the key and place it in src\
   $keyfile = "$path\src\FluentValidation-Release.snk"
@@ -31,6 +35,10 @@ target default -depends find-sdk, compile, test, deploy
 target install -depends install-dotnet-core, decrypt-private-key
 
 target compile {
+  if ($keyfile) {
+    Write-Host "Using key file: $keyfile" -ForegroundColor Cyan
+  }
+
   Invoke-Dotnet build $solution_file -c $configuration --no-incremental `
     /p:Version=$version /p:AssemblyOriginatorKeyFile=$keyfile
 }
@@ -58,6 +66,7 @@ target deploy {
   Copy-Item "$path\src\FluentValidation.WebApi\bin\$configuration"  -filter FluentValidation.WebApi.* -Destination "$output_dir\FluentValidation.WebApi-Legacy" -Recurse
   Copy-Item "$path\src\FluentValidation.AspNetCore\bin\$configuration"  -filter FluentValidation.AspNetCore.* -Destination "$output_dir\FluentValidation.AspNetCore" -Recurse
   Copy-Item "$path\src\FluentValidation.ValidatorAttribute\bin\$configuration" -Destination "$output_dir\FluentValidation.ValidatorAttribute" -Recurse
+  Copy-Item "$path\src\FluentValidation.DependencyInjectionExtensions\bin\$configuration" -Destination "$output_dir\FluentValidation.DependencyInjectionExtensions" -Recurse
 }
 
 target verify-package {
@@ -144,11 +153,11 @@ target install-dotnet-core {
     elseif ($IsLinux) {
       $urlCurrent = "https://dotnetcli.blob.core.windows.net/dotnet/Sdk/$required_version/dotnet-sdk-$required_version-linux-x64.tar.gz"
       Write-Host "Installing .NET Core $required_version from $urlCurrent"
-      $env:DOTNET_INSTALL_DIR = "$path/.dotnetsdk"
-      New-Item -Type Directory $env:DOTNET_INSTALL_DIR -Force | Out-Null
-      (New-Object System.Net.WebClient).DownloadFile($urlCurrent, "dotnet.tar.gz")
+      $env:DOTNET_INSTALL_DIR = "$path/.dotnetsdk/"
+      mkdir "$path/.dotnetsdk/"
+      (New-Object System.Net.WebClient).DownloadFile($urlCurrent, "$path/dotnet.tar.gz")
       Write-Host "Unzipping to $env:DOTNET_INSTALL_DIR"
-      tar zxvf "dotnet.tar.gz" -C $env:DOTNET_INSTALL_DIR # Use tar directly instead of System.IO.Compression
+      tar zxf "$path/dotnet.tar.gz" -C $env:DOTNET_INSTALL_DIR # Use tar directly instead of System.IO.Compression
     }
   }
 }
@@ -162,7 +171,8 @@ target find-sdk {
       $env:PATH = "$env:DOTNET_INSTALL_DIR;$env:PATH"
     }
     elseif ($IsLinux) {
-      $env:PATH = "$env:DOTNET_INSTALL_DIR:$env:PATH" # Linux uses colon not semicolon.
+      # Linux uses colon not semicolon, so can't use string interpolation
+      $env:PATH = $env:DOTNET_INSTALL_DIR + ":" + $env:PATH
     }
   }
 }

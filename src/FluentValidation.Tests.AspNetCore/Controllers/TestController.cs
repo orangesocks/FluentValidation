@@ -174,6 +174,14 @@
 			return TestResult();
 		}
 
+		public ActionResult InjectsExplicitChildValidator(ParentModel model) {
+			return TestResult();
+		}
+
+		public ActionResult InjectsExplicitChildValidatorCollection(ParentModel6 model) {
+			return TestResult();
+		}
+
 		public async Task<ActionResult> UpdateModel() {
 			var model = new TestModel();
 			await TryUpdateModelAsync(model);
