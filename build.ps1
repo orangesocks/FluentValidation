@@ -1,38 +1,31 @@
 param(
-  [string]$version = '8.2.0-dev',
   [string]$configuration = 'Release',
   [string]$path = $PSScriptRoot,
-  [string]$keyfile = ""
+  [string]$keyfile = "",
+  [string[]]$targets = 'default'
 )
 
 $ErrorActionPreference = "Stop"
 
 # Boostrap posh-build
 $build_dir = Join-Path $path ".build"
-if (! (Test-Path (Join-Path $build_dir "Posh-Build.ps1"))) { Write-Host "Installing posh-build..."; New-Item -Type Directory $build_dir -ErrorAction Ignore | Out-Null; Save-Script "Posh-Build" -Path $build_dir }
+if (! (Test-Path (Join-Path $build_dir "Posh-Build.ps1"))) { 
+  Write-Host "Installing posh-build..."; New-Item -Type Directory $build_dir -ErrorAction Ignore | Out-Null; 
+  (New-Object Net.WebClient).DownloadFile('https://raw.githubusercontent.com/jeremyskinner/posh-build/master/Posh-Build.ps1', "$build_dir/Posh-Build.ps1")
+}
 . (Join-Path $build_dir "Posh-Build.ps1")
 
 # Set these variables as desired
 $packages_dir = Join-Path $build_dir "packages"
 $output_dir = Join-Path $build_dir $configuration
 $solution_file = Join-Path $path "FluentValidation.sln"
-$nuget_key = "$env:USERPROFILE\Dropbox\nuget-access-key.txt"
+$keyfile = Resolve-Path "~/Dropbox/FluentValidation-Release.snk" -ErrorAction Ignore 
+$nuget_key = Resolve-Path "~/Dropbox/nuget-access-key.txt" -ErrorAction Ignore
 
-if (test-path "$env:USERPROFILE\Dropbox\FluentValidation-Release.snk") {
-  # Use Jeremy's local copy of the key
-  $keyfile = "$env:USERPROFILE\Dropbox\FluentValidation-Release.snk"
-}
-elseif (Test-Path "~/Dropbox/FluentValidation-Release.snk") {
-  # Local builds on linux
-  $keyfile = Resolve-Path "~/Dropbox/FluentValidation-Release.snk"
-}
-elseif (Test-Path "$path\src\FluentValidation-Release.snk") {
-  # For CI builds appveyor will decrypt the key and place it in src\
-  $keyfile = "$path\src\FluentValidation-Release.snk"
-}
+target default -depends compile, test, deploy
+target ci -depends install-dotnet-core, ci-set-version, decrypt-private-key, default
 
-target default -depends find-sdk, compile, test, deploy
-target install -depends install-dotnet-core, decrypt-private-key
+$script:version_suffix = ([xml](get-content src/Directory.Build.props)).Project.PropertyGroup.VersionSuffix
 
 target compile {
   if ($keyfile) {
@@ -40,25 +33,18 @@ target compile {
   }
 
   Invoke-Dotnet build $solution_file -c $configuration --no-incremental `
-    /p:Version=$version /p:AssemblyOriginatorKeyFile=$keyfile
+    /p:AssemblyOriginatorKeyFile=$keyfile /p:VersionSuffix=$script:version_suffix
 }
 
 target test {
-  $test_projects = @(
-    "$path\src\FluentValidation.Tests\FluentValidation.Tests.csproj",
-    "$path\src\FluentValidation.Tests.Mvc5\FluentValidation.Tests.Mvc5.csproj",
-    "$path\src\FluentValidation.Tests.AspNetCore\FluentValidation.Tests.AspNetCore.csproj",
-    "$path\src\FluentValidation.Tests.WebApi\FluentValidation.Tests.WebApi.csproj"
-  )
-
-  Invoke-Tests $test_projects -c $configuration --no-build
+  Invoke-Dotnet test $solution_file -c $configuration --no-build --logger trx 
 }
 
 target deploy {
   Remove-Item $packages_dir -Force -Recurse -ErrorAction Ignore 2> $null
   Remove-Item $output_dir -Force -Recurse -ErrorAction Ignore 2> $null
   
-  Invoke-Dotnet pack $solution_file -c $configuration /p:PackageOutputPath=$packages_dir /p:AssemblyOriginatorKeyFile=$keyfile /p:Version=$version
+  Invoke-Dotnet pack $solution_file -c $configuration /p:PackageOutputPath=$packages_dir /p:AssemblyOriginatorKeyFile=$keyfile /p:VersionSuffix=$script:version_suffix
 
   # Copy to output dir
   Copy-Item "$path\src\FluentValidation\bin\$configuration" -Destination "$output_dir\FluentValidation" -Recurse
@@ -70,21 +56,17 @@ target deploy {
 }
 
 target verify-package {
-  $sn = "${env:ProgramFiles(x86)}\Microsoft SDKs\Windows\v10.0A\bin\NETFX 4.6.2 Tools\sn.exe"
-
-  if (! (Test-Path $sn)) {
-    throw "Could not find sn.exe to verify the dlls"
-  }
-
   if (-not (test-path "$nuget_key")) {
     throw "Could not find the NuGet access key."
   }
-  elseif((& $sn -q -v "$output_dir\FluentValidation\net45\FluentValidation.dll") -ne $null) {
-    throw "The assemblies have not been signed with a private key."
+  
+  Get-ChildItem $output_dir -Recurse *.dll | ForEach { 
+    $asm = $_.FullName
+    if (! (verify_assembly $asm)) {
+      throw "$asm is not signed" 
+    }
   }
-  else {
-    write-host Package verified
-  }
+  write-host Package verified
 }
 
 target publish -depends verify-package {
@@ -116,65 +98,114 @@ target publish -depends verify-package {
   }
 }
 
-target decrypt-private-key {
-  if (Test-Path ENV:kek) {
-    iex ((New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/appveyor/secure-file/master/install.ps1'))
-    dotnet "appveyor-tools/secure-file.dll" -decrypt src/FluentValidation-Release.snk.enc -secret $ENV:kek
+target ci-set-version { 
+  if ($env:BUILD_BUILDNUMBER) {
+    # If there's a build number environment variable provided by CI, use that for the build number suffix.
+    $script:version_suffix = "ci-${env:BUILD_BUILDNUMBER}"
   }
+}
+
+target decrypt-private-key {
+  if ((Test-Path ENV:kek) -and ($ENV:kek.Length -gt 0) -and ($env:SYSTEM_PULLREQUEST.ISFORK -eq $false)) {
+    iex ((New-Object Net.WebClient).DownloadString('https://raw.githubusercontent.com/appveyor/secure-file/master/install.ps1')) | Out-Null
+    dotnet "appveyor-tools/secure-file.dll" -decrypt src/FluentValidation-Release.snk.enc -secret $ENV:kek
+    if (($LASTEXITCODE -eq 0) -and (Test-Path "$path/src/FluentValidation-Release.snk")) {
+      $script:keyfile = "$path/src/FluentValidation-Release.snk";
+      Write-Host "Decrypted."
+    }
+  }
+  else {
+    Write-Host "No KEK available to decrypt private key."
+  }
+}
+
+target get-dotnet-version {
+  $json = ConvertFrom-Json (Get-Content "$path/global.json" -Raw)
+  $required_version = $json.sdk.version
+  Write-Host "Required SDK: $required_version"
+  # Special syntax to pass a variable back to azure pipelines.
+  echo "##vso[task.setvariable variable=dotnetVersion]$required_version"
 }
 
 target install-dotnet-core {
-  # Ensures that .net core is up to date.
-  # first get the required version from global.json
+  # Find the SDK if there's one already.
+  findSdk
+  # Version check as $IsWindows, $IsLinux etc are not defined in PS 5, only PS Core.
+  $win = (($PSVersionTable.PSVersion.Major -le 5) -or $IsWindows)
   $json = ConvertFrom-Json (Get-Content "$path/global.json" -Raw)
   $required_version = $json.sdk.version
+  # If there's a version mismatch with what's defined in global.json then a 
+  # call to dotnet --version will generate an error.
+  try { dotnet --version 2>&1>$null } catch { $install_sdk = $true }
+  
+  if ($global:LASTEXITCODE) {
+    $install_sdk = $true;
+    $global:LASTEXITCODE = 0;
+  }
 
-  # Running dotnet --version stupidly fails if the required SDK version is higher 
-  # than the currently installed version. So move global.json out the way 
-  # and then put it back again 
-  Rename-Item "$path/global.json" "$path/global.json.bak"
-  $current_version = (dotnet --version)
-  Rename-Item "$path/global.json.bak" "$path/global.json"
-  Write-Host "Required .NET version: $required_version Installed: $current_version"
-
-  if ($current_version -lt $required_version) {
-    # Current installed version is too low.
-    # Install new version as a local only dependency. 
-
-    if (($PSVersionTable.PSVersion.Major -le 5) -or $IsWindows) {
-      $urlCurrent = "https://dotnetcli.blob.core.windows.net/dotnet/Sdk/$required_version/dotnet-sdk-$required_version-win-x64.zip"
-      Write-Host "Installing .NET Core $required_version from $urlCurrent"
-      $env:DOTNET_INSTALL_DIR = "$path/.dotnetsdk"
-      New-Item -Type Directory $env:DOTNET_INSTALL_DIR -Force | Out-Null
-      (New-Object System.Net.WebClient).DownloadFile($urlCurrent, "dotnet.zip")
-      Write-Host "Unzipping to $env:DOTNET_INSTALL_DIR"
-      Add-Type -AssemblyName System.IO.Compression.FileSystem; [System.IO.Compression.ZipFile]::ExtractToDirectory("dotnet.zip", $env:DOTNET_INSTALL_DIR)
+  if ($install_sdk) {
+    $installer = $null;
+    if ($win) {
+      $installer = "$build_dir/dotnet-installer.ps1" 
+      (New-Object System.Net.WebClient).DownloadFile("https://dot.net/v1/dotnet-install.ps1", $installer);
     }
-    elseif ($IsLinux) {
-      $urlCurrent = "https://dotnetcli.blob.core.windows.net/dotnet/Sdk/$required_version/dotnet-sdk-$required_version-linux-x64.tar.gz"
-      Write-Host "Installing .NET Core $required_version from $urlCurrent"
-      $env:DOTNET_INSTALL_DIR = "$path/.dotnetsdk/"
-      mkdir "$path/.dotnetsdk/"
-      (New-Object System.Net.WebClient).DownloadFile($urlCurrent, "$path/dotnet.tar.gz")
-      Write-Host "Unzipping to $env:DOTNET_INSTALL_DIR"
-      tar zxf "$path/dotnet.tar.gz" -C $env:DOTNET_INSTALL_DIR # Use tar directly instead of System.IO.Compression
+    else { 
+      $installer = "$build_dir/dotnet-installer"
+      write-host Downloading installer to $installer 
+      curl https://dot.net/v1/dotnet-install.sh --output $installer 
+      chmod +x $installer
     }
+
+    $dotnet_path = "$path/.dotnetsdk"
+
+    # If running in azure pipelines, use that as the dotnet install path. 
+    if ($env:AGENT_TOOLSDIRECTORY) {
+      $dotnet_path = Join-Path $env:AGENT_TOOLSDIRECTORY dotnet
+    }
+
+    Write-Host Installing $json.sdk.version to $dotnet_path
+    . $installer -i $dotnet_path -v $json.sdk.version
+
+    # Collect installed SDKs.
+    $sdks = & "$dotnet_path/dotnet" --list-sdks | ForEach-Object { 
+      $_.Split(" ")[0]
+    }
+
+    # Install any other SDKs required. Only bother installing if not installed already. 
+    $json.others | Foreach-Object {
+      if (!($sdks -contains $_)) {
+        Write-Host Installing $_ 
+        . $installer -i $dotnet_path -v $_
+      }
+    }
+    # Set process path again 
+    findSdk 
   }
 }
 
-target find-sdk {
-  if (Test-Path "$path/.dotnetsdk") {
-    Write-Host "Using .NET SDK from $path/.dotnetsdk"
-    $env:DOTNET_INSTALL_DIR = "$path/.dotnetsdk"
+function verify_assembly($path) {
+  $asm = [System.Reflection.Assembly]::LoadFile($path);
+  $asmName = $asm.GetName().ToString();
+  $search = "PublicKeyToken="
+  $token = $asmName.Substring($asmName.IndexOf($search) + $search.Length)
+  return $token -eq "7de548da2fbae0f0";
+}
+
+function findSdk() {
+  $dotnet_path = Join-Path $env:AGENT_TOOLSDIRECTORY dotnet
+
+  if (Test-Path $dotnet_path) {
+    Write-Host "Using .NET SDK from $dotnet_path"
+    $env:DOTNET_INSTALL_DIR = $dotnet_path
 
     if (($PSVersionTable.PSVersion.Major -le 5) -or $IsWindows) {
       $env:PATH = "$env:DOTNET_INSTALL_DIR;$env:PATH"
     }
-    elseif ($IsLinux) {
+    else {
       # Linux uses colon not semicolon, so can't use string interpolation
       $env:PATH = $env:DOTNET_INSTALL_DIR + ":" + $env:PATH
     }
   }
 }
 
-Start-Build $args
+Start-Build $targets
