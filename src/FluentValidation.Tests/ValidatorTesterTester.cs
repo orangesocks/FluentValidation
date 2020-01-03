@@ -20,6 +20,7 @@
 
 namespace FluentValidation.Tests {
 	using System;
+	using System.Collections.Generic;
 	using System.Linq;
 	using Xunit;
 	using TestHelper;
@@ -261,17 +262,36 @@ namespace FluentValidation.Tests {
 		}
 
 		[Fact]
-		public void ShouldHaveValidationError_should_correctly_handle_explicitly_providing_object_to_validate() {
-			var unitOfMeasure = new UnitOfMeasure {
-				Value = 1
-			};
+		public void ShouldHaveValidationError_with_an_unmatched_rule_and_a_single_error_should_throw_an_exception() {
+      var validator = new TestValidator();
+      validator.RuleFor(x => x.NullableInt).GreaterThanOrEqualTo(3);
 
-			var validator = new UnitOfMeasureValidator();
+      var result = validator.TestValidate(new Person() {
+        NullableInt = 1
+      });
 
-			validator.ShouldHaveValidationErrorFor(unit => unit.Type, unitOfMeasure);
-		}
+      var ex = Assert.Throws<ValidationTestException>(() => result.ShouldHaveValidationErrorFor(x => x.NullableInt.Value));
+      Assert.Equal("Expected a validation error for property NullableInt.Value\n----\nProperties with Validation Errors:\n[0]: NullableInt\n", ex.Message);
+    }
 
-		[Fact]
+    [Fact]
+    public void ShouldHaveValidationError_with_an_unmatched_rule_and_multiple_errors_should_throw_an_exception() {
+      var validator = new TestValidator();
+      validator.RuleFor(x => x.NullableInt).GreaterThan(1);
+      validator.RuleFor(x => x.Age).GreaterThan(1);
+      validator.RuleFor(x => x.AnotherInt).GreaterThan(2);
+
+      var result = validator.TestValidate(new Person() {
+        NullableInt = 1,
+        Age = 1,
+        AnotherInt = 1
+      });
+
+      var ex = Assert.Throws<ValidationTestException>(() => result.ShouldHaveValidationErrorFor(x => x.NullableInt.Value));
+      Assert.Equal("Expected a validation error for property NullableInt.Value\n----\nProperties with Validation Errors:\n[0]: NullableInt\n[1]: Age\n[2]: AnotherInt\n", ex.Message);
+    }
+
+    [Fact]
 		public void ShouldNotHaveValidationError_should_correctly_handle_explicitly_providing_object_to_validate() {
 			var unitOfMeasure = new UnitOfMeasure {
 				Value = 1,
@@ -597,6 +617,30 @@ namespace FluentValidation.Tests {
 			}
 
 			thrown.ShouldBeFalse();
+		}
+
+		[Fact]
+		public void Can_use_indexer_in_string_message() {
+			var validator = new InlineValidator<Person>();
+			var orderValidator = new InlineValidator<Order>();
+			orderValidator.RuleFor(x => x.ProductName).NotNull();
+			validator.RuleForEach(x => x.Orders).SetValidator(orderValidator);
+
+			var model = new Person { Orders = new List<Order> { new Order() }};
+			var result = validator.TestValidate(model);
+			result.ShouldHaveValidationErrorFor("Orders[0].ProductName");
+		}
+
+		[Fact]
+		public void Can_use_indexer_in_string_message_inverse() {
+			var validator = new InlineValidator<Person>();
+			var orderValidator = new InlineValidator<Order>();
+			orderValidator.RuleFor(x => x.ProductName).Null();
+			validator.RuleForEach(x => x.Orders).SetValidator(orderValidator);
+
+			var model = new Person { Orders = new List<Order> { new Order() }};
+			var result = validator.TestValidate(model);
+			result.ShouldNotHaveValidationErrorFor("Orders[0].ProductName");
 		}
 
 		private class AddressValidator : AbstractValidator<Address> {
