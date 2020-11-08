@@ -38,10 +38,6 @@ namespace FluentValidation.Validators {
 		}
 
 		public override IEnumerable<ValidationFailure> Validate(PropertyValidatorContext context) {
-			if (Options.Condition != null && !Options.Condition(context)) {
-				return Enumerable.Empty<ValidationFailure>();
-			}
-
 			if (context.PropertyValue == null) {
 				return Enumerable.Empty<ValidationFailure>();
 			}
@@ -52,7 +48,7 @@ namespace FluentValidation.Validators {
 				return Enumerable.Empty<ValidationFailure>();
 			}
 
-			var newContext = CreateNewValidationContextForChildValidator(context.PropertyValue, context);
+			var newContext = CreateNewValidationContextForChildValidator(context, validator);
 
 			// If we're inside a collection with RuleForEach, then preserve the CollectionIndex placeholder
 			// and pass it down to child validator by caching it in the RootContextData which flows through to
@@ -68,14 +64,6 @@ namespace FluentValidation.Validators {
 		}
 
 		public override async Task<IEnumerable<ValidationFailure>> ValidateAsync(PropertyValidatorContext context, CancellationToken cancellation) {
-			if (Options.Condition != null && !Options.Condition(context)) {
-				return Enumerable.Empty<ValidationFailure>();
-			}
-
-			if (Options.AsyncCondition != null && !await Options.AsyncCondition(context, cancellation)) {
-				return Enumerable.Empty<ValidationFailure>();
-			}
-
 			if (context.PropertyValue == null) {
 				return Enumerable.Empty<ValidationFailure>();
 			}
@@ -86,7 +74,7 @@ namespace FluentValidation.Validators {
 				return Enumerable.Empty<ValidationFailure>();
 			}
 
-			var newContext = CreateNewValidationContextForChildValidator(context.PropertyValue, context);
+			var newContext = CreateNewValidationContextForChildValidator(context, validator);
 
 			// If we're inside a collection with RuleForEach, then preserve the CollectionIndex placeholder
 			// and pass it down to child validator by caching it in the RootContextData which flows through to
@@ -106,6 +94,18 @@ namespace FluentValidation.Validators {
 			return _validatorProvider != null ? _validatorProvider(context) : _validator;
 		}
 
+		protected virtual IValidationContext CreateNewValidationContextForChildValidator(PropertyValidatorContext context, IValidator<TProperty> validator) {
+			var selector = RuleSets?.Length > 0 ? new RulesetValidatorSelector(RuleSets) : null;
+			var parentContext = ValidationContext<T>.GetFromNonGenericContext(context.ParentContext);
+			var newContext = parentContext.CloneForChildValidator((TProperty)context.PropertyValue, PassThroughParentContext, selector);
+
+			if(!parentContext.IsChildCollectionContext)
+				newContext.PropertyChain.Add(context.Rule.PropertyName);
+
+			return newContext;
+		}
+
+		[Obsolete("This overload is not used and will be removed from FluentValidation 10.")]
 		protected IValidationContext CreateNewValidationContextForChildValidator(object instanceToValidate, PropertyValidatorContext context) {
 			var selector = RuleSets?.Length > 0 ? new RulesetValidatorSelector(RuleSets) : null;
 			var parentContext = ValidationContext<T>.GetFromNonGenericContext(context.ParentContext);
@@ -118,7 +118,7 @@ namespace FluentValidation.Validators {
 		}
 
 		public override bool ShouldValidateAsynchronously(IValidationContext context) {
-			return context.IsAsync() || Options.AsyncCondition != null;
+			return context.IsAsync() || Options.HasAsyncCondition;
 		}
 
 		private void HandleCollectionIndex(PropertyValidatorContext context, out object originalIndex, out object index) {

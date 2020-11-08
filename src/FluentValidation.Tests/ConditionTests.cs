@@ -15,6 +15,7 @@
 //
 // The latest version of this file can be found at https://github.com/FluentValidation/FluentValidation
 #endregion
+#pragma warning disable 1998
 
 namespace FluentValidation.Tests {
 	using System.Threading.Tasks;
@@ -140,6 +141,45 @@ namespace FluentValidation.Tests {
 			var result = await validator.ValidateAsync(new Person());
 			result.Errors.Count.ShouldEqual(1);
 		}
+
+		[Fact]
+		public void Async_condition_executed_synchronosuly_with_synchronous_role() {
+			var validator = new TestValidator();
+			validator.RuleFor(x => x.Surname).NotNull()
+				.WhenAsync((x, token) => Task.FromResult(false));
+			var result = validator.Validate(new Person());
+			result.IsValid.ShouldBeTrue();
+		}
+
+		[Fact]
+		public void Async_condition_executed_synchronosuly_with_asynchronous_rule() {
+			var validator = new TestValidator();
+			validator.RuleFor(x => x.Surname)
+				.MustAsync((surname, c) => Task.FromResult(surname != null))
+				.WhenAsync((x, token) => Task.FromResult(false));
+			var result = validator.Validate(new Person());
+			result.IsValid.ShouldBeTrue();
+		}
+
+		[Fact]
+		public void Async_condition_executed_synchronosuly_with_synchronous_collection_role() {
+			var validator = new TestValidator();
+			validator.RuleForEach(x => x.NickNames).NotNull()
+				.WhenAsync((x, token) => Task.FromResult(false));
+			var result = validator.Validate(new Person { NickNames = new string[0] });
+			result.IsValid.ShouldBeTrue();
+		}
+
+		[Fact]
+		public void Async_condition_executed_synchronosuly_with_asynchronous_collection_rule() {
+			var validator = new TestValidator();
+			validator.RuleForEach(x => x.NickNames)
+				.MustAsync((n, c) => Task.FromResult(n != null))
+				.WhenAsync((x, token) => Task.FromResult(false));
+			var result = validator.Validate(new Person { NickNames = new string[0]});
+			result.IsValid.ShouldBeTrue();
+		}
+
 
 		private class TestConditionValidator : AbstractValidator<Person> {
 			public TestConditionValidator() {

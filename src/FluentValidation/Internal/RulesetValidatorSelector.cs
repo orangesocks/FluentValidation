@@ -10,11 +10,13 @@ namespace FluentValidation.Internal {
 	/// </summary>
 	public class RulesetValidatorSelector : IValidatorSelector {
 		readonly string[] _rulesetsToExecute;
+    public const string DefaultRuleSetName = "default";
+    public const string WildcardRuleSetName = "*";
 
-		/// <summary>
-		/// Rule sets
-		/// </summary>
-		public string[] RuleSets => _rulesetsToExecute;
+    /// <summary>
+    /// Rule sets
+    /// </summary>
+    public string[] RuleSets => _rulesetsToExecute; //TODO: Convert to IEnumerable<string> for FV 10
 
 		/// <summary>
 		/// Creates a new instance of the RulesetValidatorSelector.
@@ -40,13 +42,13 @@ namespace FluentValidation.Internal {
 			}
 
 			if (rule.RuleSets.Length == 0 && _rulesetsToExecute.Length == 0) {
-				executed.Add("default");
+				executed.Add(DefaultRuleSetName);
 				return true;
 			}
 
-			if (_rulesetsToExecute.Contains("default", StringComparer.OrdinalIgnoreCase)) {
-				if (rule.RuleSets.Length == 0 || rule.RuleSets.Contains("default", StringComparer.OrdinalIgnoreCase)) {
-					executed.Add("default");
+			if (_rulesetsToExecute.Contains(DefaultRuleSetName, StringComparer.OrdinalIgnoreCase)) {
+				if (rule.RuleSets.Length == 0 || rule.RuleSets.Contains(DefaultRuleSetName, StringComparer.OrdinalIgnoreCase)) {
+					executed.Add(DefaultRuleSetName);
 					return true;
 				}
 			}
@@ -59,9 +61,9 @@ namespace FluentValidation.Internal {
 				}
 			}
 
-			if (_rulesetsToExecute.Contains("*")) {
+			if (_rulesetsToExecute.Contains(WildcardRuleSetName)) {
 				if (rule.RuleSets == null || rule.RuleSets.Length == 0) {
-					executed.Add("default");
+					executed.Add(DefaultRuleSetName);
 				}
 				else {
 					rule.RuleSets.ForEach(r => executed.Add(r));
@@ -79,6 +81,17 @@ namespace FluentValidation.Internal {
 		/// <returns></returns>
 		protected bool IsIncludeRule(IValidationRule rule) {
 			return rule is IIncludeRule;
+		}
+
+		// Prior to 9.1, FV's primary ruleset syntax allowed specifying multiple rulesets
+		// in a single comma-separated string. This approach was deprecated in 9.1 in favour
+		// of the options syntax, but we still need this logic in a couple of places for backwards compat.
+		internal static string[] LegacyRulesetSplit(string ruleSet) {
+			var ruleSetNames = ruleSet.Split(',', ';')
+				.Select(x => x.Trim())
+				.ToArray();
+
+			return ruleSetNames;
 		}
 	}
 }
