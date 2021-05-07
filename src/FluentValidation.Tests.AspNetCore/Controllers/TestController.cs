@@ -73,12 +73,6 @@ namespace FluentValidation.Tests.AspNetCore.Controllers {
 			return TestResult();
 		}
 
-#pragma warning disable 612
-		public ActionResult ActionContextInterceptorTest([CustomizeValidator(Interceptor = typeof(SimpleActionContextPropertyInterceptor))] PropertiesTestModel test) {
-			return TestResult();
-		}
-#pragma warning restore 612
-
 		public ActionResult ClearErrorsInterceptorTest([CustomizeValidator(Interceptor = typeof(ClearErrorsInterceptor))] PropertiesTestModel test) {
 			return TestResult();
 		}
@@ -127,6 +121,14 @@ namespace FluentValidation.Tests.AspNetCore.Controllers {
 		}
 
 		public ActionResult ImplicitChildValidatorWithNullChild(ParentModel5 model) {
+			return TestResult();
+		}
+
+		public ActionResult ImplicitRootCollectionElementValidator([FromBody] IEnumerable<ChildModel> model) {
+			return TestResult();
+		}
+
+		public ActionResult ImplicitRootCollectionElementValidationEnabled(ParentModel model) {
 			return TestResult();
 		}
 

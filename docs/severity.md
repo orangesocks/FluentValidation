@@ -11,7 +11,7 @@ public class PersonValidator : AbstractValidator<Person> {
 }
 ```
 
-By default, if these rules fail they will have a severity of "Error". This can be changed by calling the `WithSeverity` method. For example, if we wanted a missing surname to be identified as a warning instead of an error then we could modify the above line to:
+By default, if these rules fail they will have a severity of `Error`. This can be changed by calling the `WithSeverity` method. For example, if we wanted a missing surname to be identified as a warning instead of an error then we could modify the above line to:
 
 ```
 RuleFor(x => x.Surname).NotNull().WithSeverity(Severity.Warning);
@@ -41,3 +41,11 @@ Property: Forename Severity: Error
 ```
 
 By default, the severity level of every validation rule is `Error`. Available options are `Error`, `Warning`, or `Info`.
+
+To set the severity level globally, you can set the `Severity` property on the static `ValidatorOptions` class during your application's startup routine:
+
+```csharp
+ValidatorOptions.Global.Severity = Severity.Info;
+```
+
+This can then be overridden by individual rules.
