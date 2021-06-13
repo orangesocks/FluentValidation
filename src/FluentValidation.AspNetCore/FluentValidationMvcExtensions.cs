@@ -66,7 +66,7 @@ namespace FluentValidation.AspNetCore {
 			var config = new FluentValidationMvcConfiguration(ValidatorOptions.Global);
 			configurationExpression?.Invoke(config);
 
-			services.AddValidatorsFromAssemblies(config.AssembliesToRegister, config.ServiceLifetime, config.TypeFilter);
+			services.AddValidatorsFromAssemblies(config.AssembliesToRegister, config.ServiceLifetime, config.TypeFilter, config.IncludeInternalValidatorTypes);
 			services.AddSingleton(config.ValidatorOptions);
 
 			if (config.ValidatorFactory != null) {
@@ -82,7 +82,7 @@ namespace FluentValidation.AspNetCore {
 				services.Add(ServiceDescriptor.Singleton<IObjectModelValidator, FluentValidationObjectModelValidator>(s => {
 					var options = s.GetRequiredService<IOptions<MvcOptions>>().Value;
 					var metadataProvider = s.GetRequiredService<IModelMetadataProvider>();
-					return new FluentValidationObjectModelValidator(metadataProvider, options.ModelValidatorProviders, config.RunDefaultMvcValidationAfterFluentValidationExecutes);
+					return new FluentValidationObjectModelValidator(metadataProvider, options.ModelValidatorProviders, !config.DisableDataAnnotationsValidation);
 				}));
 			}
 
